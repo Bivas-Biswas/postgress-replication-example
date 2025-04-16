@@ -20,10 +20,10 @@ docker compose up --build  # Rebuild and start the containers
 ```
 
 it will create 4 containers
-a. pgpool
-b. pg_primary
-c. pg_replica_1
-d. pg_replica_2
+- a. pgpool
+- b. pg_primary
+- c. pg_replica_1
+- d. pg_replica_2
 
 ### How to run the app.js
 
