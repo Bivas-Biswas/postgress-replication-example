@@ -19,8 +19,19 @@ docker compose down -v  # Stop and remove containers and volumes
 docker compose up --build  # Rebuild and start the containers
 ```
 
+it will create 4 containers
+a. pgpool
+b. pg_primary
+c. pg_replica_1
+d. pg_replica_2
+
 ### How to run the app.js
 
 ```
 node app.js
 ```
+
+
+### Todo:
+
+have to enable the log in pgpool for each request, like for each request which postress used that kind.
