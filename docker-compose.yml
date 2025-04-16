@@ -1,0 +1,127 @@
+version: '3.8'
+x-postgres-common:
+  &postgres-common
+  image: postgres:14-alpine
+  user: postgres
+  restart: always
+  healthcheck:
+    test: 'pg_isready -U user --dbname=postgres'
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+services:
+  postgres_primary:
+    <<: *postgres-common
+    container_name: "pg_primary"
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: |
+      postgres 
+      -c wal_level=replica 
+      -c hot_standby=on 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10 
+      -c hot_standby_feedback=on
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  postgres_replica:
+    <<: *postgres-common
+    container_name: "pg_replica_1"
+    ports:
+      - 5433:5432
+    environment:
+      PGUSER: user
+      PGPASSWORD: password
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_1 --host=postgres_primary --port=5432
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+      postgres
+      "
+    depends_on:
+      - postgres_primary
+
+  postgres_replica_2:
+    <<: *postgres-common
+    container_name: "pg_replica_2"
+    ports:
+      - 5434:5432
+    environment:
+      PGUSER: user
+      PGPASSWORD: password
+    command: |
+      bash -c "
+      until pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot_2 --host=postgres_primary --port=5432
+      do
+      echo 'Waiting for primary to connect...'
+      sleep 1s
+      done
+      echo 'Backup done, starting replica...'
+      chmod 0700 /var/lib/postgresql/data
+      postgres
+      "
+    depends_on:
+      - postgres_primary
+
+  # pgbouncer:
+  #   image: edoburu/pgbouncer
+  #   container_name: pgbouncer
+  #   ports:
+  #     - "7643:6432"
+  #   environment:
+  #     DB_USER: user
+  #     DB_PASSWORD: password
+  #   volumes:
+  #     - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+  #     - ./userlist.txt:/etc/pgbouncer/userlist.txt
+  #   depends_on:
+  #     - postgres_primary
+  #     - postgres_replica
+  #     - postgres_replica_2
+
+  pgpool:
+    image: bitnami/pgpool
+    container_name: pgpool
+    ports:
+      - "7643:5432"
+    environment:
+      - PGPOOL_NODE_ID=1
+      # - PGPOOL_SETUP_DEBUG=true
+      - ALLOW_EMPTY_PASSWORD= yes
+      # - BITNAMI_DEBUG=true
+      - PGPOOL_BACKEND_NODES=0:pg_primary:5432,1:pg_replica_1:5432,2:pg_replica_2:5432
+
+
+      # - PGPOOL_PASSWORD=password
+      - PGPOOL_ADMIN_USERNAME=user
+      - PGPOOL_ADMIN_PASSWORD=password
+      - PGPOOL_SR_CHECK_USER=user
+      - PGPOOL_SR_CHECK_PASSWORD=password
+      - PGPOOL_HEALTH_CHECK_USER=user
+      - PGPOOL_HEALTH_CHECK_PASSWORD=password
+      - PGPOOL_POSTGRES_USERNAME=user
+      - PGPOOL_POSTGRES_PASSWORD=password
+      
+    depends_on:
+      postgres_primary:
+          condition: service_healthy
+      postgres_replica:
+          condition: service_healthy
+      postgres_replica_2:
+          condition: service_healthy
+    volumes:
+      - ./pgpool.conf:/etc/pgpool/pgpool.conf
+      - ./userlist.txt:/opt/bitnami/pgpool/conf/userlist.txt
